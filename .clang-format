@@ -1,0 +1,5 @@
+UseTab: Always
+IndentWidth: 3
+TabWidth: 3
+IndentCaseLabels: True
+ColumnLimit: 140
