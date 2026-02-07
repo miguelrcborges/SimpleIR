@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-#if !__has_builtin(__builtin_ctz)
+#if defined(_MSC_VER) && !defined(__clang__)
 #include <intrin.h>
 
 static inline uint32_t __builtin_ctz(uint32_t x) {
@@ -44,12 +44,11 @@ enum SIR_Instruction {
 	SIR_CmpSGt,
 	SIR_CmpSGtEq,
 
-	SIR_Load,
-	SIR_Store,
+	SIR_ReadFromAddr,
+	SIR_WriteToAddr,
 	SIR_Call,
 	SIR_Alloc,
-	SIR_Copy,
-	SIR_Deref,
+	SIR_Set,
 
 	SIR_Br,
 	SIR_BrIf,
