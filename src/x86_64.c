@@ -46,7 +46,6 @@ typedef struct AMD64CompileContext {
 		c->ExecutableMemory[c->ExecutableMemoryCursor] = b;                                                                                  \
 	} while (0);
 
-
 static void SIR_AMD64WriteRM(AMD64CompileContext *c, uint8_t RegSection, Size RMTarget, uint8_t Width) {
 	uint8_t RMMod = (RMTarget << 3) < INT8_MIN ? 0b10 : 0b01;
 	RMMod = RMTarget > 0 ? 0b11 : RMMod;
@@ -82,7 +81,8 @@ static void SIR_AMD64WriteMov(AMD64CompileContext *c, Size Reg, Size RegOrMem, u
 }
 
 static void SIR_AMD64ForceRegToMem(AMD64CompileContext *c, Size Reg) {
-	if (Reg <= 0) return;
+	if (Reg <= 0)
+		return;
 	Size MemIndex;
 	if (c->MemFreeStackCursor > 0) {
 		c->MemFreeStackCursor -= 1;
@@ -111,7 +111,6 @@ static void SIR_AMD64PushPopReg(AMD64CompileContext *c, Size Reg, int TrueIfPush
 		WriteByte(Rex);
 	}
 }
-
 
 static void SIR_AMD64WriteExitSequence(AMD64CompileContext *c) {
 	WriteByte(0xC3); // ret
@@ -160,7 +159,6 @@ static Size SIR_AMD64GetVarIntoReg(AMD64CompileContext *c, Size Var, uint32_t Do
 	return FreeReg;
 }
 
-
 void SIR_AMD64Compile(SIR_Function *Functions, Size FunctionsCount, void *OutputExecutableMemory, Size OutputExecutableMemorySize,
 							 void *OutputReadOnlyMemory, Size OutputReadOnlyMemorySize, uint64_t *Constants, AMD64_CallingConventions Convention) {
 	AMD64CompileContext ctx;
@@ -168,8 +166,8 @@ void SIR_AMD64Compile(SIR_Function *Functions, Size FunctionsCount, void *Output
 	c->ExecutableMemoryCursor = OutputExecutableMemorySize;
 	c->ExecutableMemory = (uint8_t *)OutputExecutableMemory;
 
-
 	// TODO: Implement constant arguments, but Im still thinking on how these can be used nicely
+	// TODO: Optimize immediates that could be written in a single byte.
 	for (Size i = 0; i < FunctionsCount; i += 1) {
 		SIR_Function *f = &Functions[i];
 		memset(c->VarsLocation, 0, sizeof(c->VarsLocation));
@@ -204,7 +202,8 @@ void SIR_AMD64Compile(SIR_Function *Functions, Size FunctionsCount, void *Output
 			}
 
 			// Dead Code Elemination
-			if (c->CurrentlyFreed == 0 && (i->Instruction != SIR_Ret && i->Instruction != SIR_Call && i->Instruction != SIR_WriteToAddr)) continue;
+			if (c->CurrentlyFreed == 0 && (i->Instruction != SIR_Ret && i->Instruction != SIR_Call && i->Instruction != SIR_WriteToAddr))
+				continue;
 
 			uint8_t OpType = i->InstructionOptions & SIR_OperandTypeMask;
 			uint8_t OpWidth = (i->InstructionOptions & SIR_InstructionWidthMask) >> SIR_InstructionWidthOffset;
@@ -236,9 +235,6 @@ void SIR_AMD64Compile(SIR_Function *Functions, Size FunctionsCount, void *Output
 					Opcode = i->Instruction == SIR_Sub ? 0x2B : Opcode;
 					SIR_AMD64WriteRM(c, Op2Loc, c->CurrentlyFreed, OpWidth);
 					WriteByte(Opcode);
-					if (c->CurrentlyFreed != Op1Loc) {
-						SIR_AMD64WriteMov(c, Op1Loc, c->CurrentlyFreed, OpWidth, 0);
-					}
 
 				} else if (OpType == SIR_Immediate) {
 					uint32_t Val = i->OperandDW2;
@@ -263,14 +259,13 @@ void SIR_AMD64Compile(SIR_Function *Functions, Size FunctionsCount, void *Output
 					if (OpWidth == SIR_WORD) {
 						WriteByte(0x67);
 					}
-
-					if (c->CurrentlyFreed != Op1Loc) {
-						SIR_AMD64WriteMov(c, Op1Loc, c->CurrentlyFreed, OpWidth, 0);
-					}
 				}
 
-			} else if (i->Instruction == SIR_SMul) {
-				// TODO: What do I do when byte sized op ?????? no imul reg rm8
+				if (c->CurrentlyFreed != Op1Loc) {
+					SIR_AMD64WriteMov(c, Op1Loc, c->CurrentlyFreed, OpWidth, 0);
+				}
+
+			} else if (i->Instruction == SIR_SMul && OpWidth != SIR_BYTE) {
 				Size FinalLocation = c->CurrentlyFreed;
 				// Get this first in order to attemp to get RAX
 				if (FinalLocation < 0) {
@@ -281,6 +276,7 @@ void SIR_AMD64Compile(SIR_Function *Functions, Size FunctionsCount, void *Output
 				if (Op1Loc == 0) {
 					Op1Loc = SIR_AMD64GetVarIntoReg(c, Op1, 0);
 				}
+				uint8_t FinalLocationEnconding = RegistersEnconding[FinalLocation];
 
 				if (i->InstructionOptions == SIR_Var) {
 					Size Op2 = i->OperandW2;
@@ -290,15 +286,9 @@ void SIR_AMD64Compile(SIR_Function *Functions, Size FunctionsCount, void *Output
 						Op2Loc = SIR_AMD64GetVarIntoReg(c, Op2, 0);
 					}
 
-					if (FinalLocation == RAX) {
-						uint8_t Opcode = OpWidth == SIR_BYTE ? 0xF6 : 0xF7;
-						SIR_AMD64WriteRM(c, 05, Op2Loc, OpWidth);
-						WriteByte(Opcode);
-					} else {
-						SIR_AMD64WriteRM(c, FinalLocation, Op2Loc, OpWidth);
-						WriteByte(0xAF);
-						WriteByte(0x0F);
-					}
+					SIR_AMD64WriteRM(c, FinalLocationEnconding, Op2Loc, OpWidth);
+					WriteByte(0xAF);
+					WriteByte(0x0F);
 					uint8_t Rex = OpWidth == SIR_QWORD ? 0b01001000 : 0b01000000;
 					Rex |= FinalLocation >= R8 ? 0b100 : 0;
 					Rex |= Op2Loc >= R8 ? 0b001 : 0;
@@ -309,10 +299,6 @@ void SIR_AMD64Compile(SIR_Function *Functions, Size FunctionsCount, void *Output
 						WriteByte(0x67);
 					}
 
-					if (Op1Loc != FinalLocation) {
-						SIR_AMD64WriteMov(c, FinalLocation, Op1Loc, OpWidth, 1);
-					}
-					
 				} else if (OpType == SIR_Immediate) {
 					uint32_t Val = i->OperandDW2;
 
@@ -322,7 +308,7 @@ void SIR_AMD64Compile(SIR_Function *Functions, Size FunctionsCount, void *Output
 						WriteByte(Byte);
 					}
 
-					SIR_AMD64WriteRM(c, FinalLocation, Op1Loc, OpWidth);
+					SIR_AMD64WriteRM(c, FinalLocationEnconding, Op1Loc, OpWidth);
 					WriteByte(0x69);
 					uint8_t Rex = OpWidth == SIR_QWORD ? 0b01001000 : 0b01000000;
 					Rex |= FinalLocation >= R8 ? 0b100 : 0;
@@ -333,10 +319,10 @@ void SIR_AMD64Compile(SIR_Function *Functions, Size FunctionsCount, void *Output
 					if (OpWidth == SIR_WORD) {
 						WriteByte(0x67);
 					}
+				}
 
-					if (c->CurrentlyFreed != Op1Loc) {
-						SIR_AMD64WriteMov(c, Op1Loc, c->CurrentlyFreed, OpWidth, 0);
-					}
+				if (Op1Loc != FinalLocation) {
+					SIR_AMD64WriteMov(c, FinalLocation, Op1Loc, OpWidth, 1);
 				}
 
 				c->FreeRegs |= (1 << FinalLocation);
