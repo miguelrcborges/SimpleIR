@@ -6,10 +6,12 @@
 #include <intrin.h>
 
 static inline uint32_t __builtin_ctz(uint32_t x) {
-    unsigned long ret;
-    _BitScanForward(&ret, x); 
-    return (uint32_t)ret;
+	unsigned long ret;
+	_BitScanForward(&ret, x);
+	return (uint32_t)ret;
 }
+
+#define _Thread_local __declspec(thread)
 #endif
 
 
@@ -76,7 +78,7 @@ enum SIR_InstructionWidth {
 	SIR_WORD = 2 << SIR_InstructionWidthOffset,
 	SIR_BYTE = 3 << SIR_InstructionWidthOffset,
 
-	SIR_InstructioNWidthCount
+	SIR_InstructionWidthCount
 };
 
 typedef struct SIR_Operation {
